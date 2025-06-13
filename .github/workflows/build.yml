@@ -16,9 +16,12 @@ jobs:
         sudo apt-get install -y \
           tar \  # 明确安装tar工具
           gzip \
-          git \
+          unzip \
+          zip \
           curl \
-          wget
+          wget \
+          git \
+          make
         
     # 第二步：检出代码（使用更可靠的checkout方式）
     - uses: actions/checkout@v4
