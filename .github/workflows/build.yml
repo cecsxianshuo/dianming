@@ -17,23 +17,13 @@ jobs:
       with:
         python-version: '3.8'
 
-    # 阶段3：安装 unzip / curl 等基础工具（使用静态版本）
+    # 阶段3：安装基础工具（不使用 sudo）
     - name: Install essential tools
       run: |
-        # 下载静态 unzip（使用 jsDelivr 镜像）
-        curl -L -o /tmp/unzip https://cdn.jsdelivr.net/gh/dsoprea/unzip-static@6.0-26/unzip-static
-        chmod +x /tmp/unzip
+        pip install requests || true
 
-        # 检查是否是有效的 ELF 可执行文件
-        if ! file /tmp/unzip | grep -q 'ELF'; then
-          echo "::error::unzip 下载失败，请检查网络或更换源"
-          exit 1
-        fi
-
-        echo "/tmp" >> $GITHUB_PATH
-
-    # 阶段4：下载 Android SDK 和 NDK
-    - name: Install Android SDK & NDK
+    # 阶段4：下载 Android SDK 和 NDK 并用 Python 解压
+    - name: Download and extract Android SDK & NDK using Python
       run: |
         mkdir -p $ANDROID_HOME/cmdline-tools
 
@@ -42,15 +32,26 @@ jobs:
           -o /tmp/cmdline-tools.zip \
           https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
 
-        /tmp/unzip /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools/
+        # 使用 Python 解压 cmdline-tools
+        python3 -c "
+          import zipfile
+          with zipfile.ZipFile('/tmp/cmdline-tools.zip', 'r') as zip_ref:
+              zip_ref.extractall('$ANDROID_HOME/cmdline-tools/')
+        "
+
         mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
 
-        # 下载并解压 NDK
+        # 下载 NDK
         curl --retry 5 --retry-delay 10 \
           -o /tmp/ndk.zip \
           https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
 
-        /tmp/unzip /tmp/ndk.zip -d ${{ github.workspace }}
+        # 使用 Python 解压 NDK
+        python3 -c "
+          import zipfile
+          with zipfile.ZipFile('/tmp/ndk.zip', 'r') as zip_ref:
+              zip_ref.extractall('${{ github.workspace }}')
+        "
 
     # 阶段5：设置环境变量
     - name: Set environment variables
