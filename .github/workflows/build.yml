@@ -1,7 +1,9 @@
 name: Build Android APK
-
 on: [push]  # 代码推送时触发
-
+env:
+  ANDROID_HOME: ${{ github.workspace }}/android-sdk
+  ANDROIDNDK: ${{ github.workspace }}/android-ndk-r23c
+  PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/bin:$PATH
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,34 +11,73 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Fix libtinfo5 dependency
-      uses: actions/setup-python@v2
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v4
       with:
         python-version: '3.8'
     
-    - name: Pre-download Android SDK
+    - name: Install system dependencies
       run: |
-        wget https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip || \
-        wget https://mirrors.bfsu.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip || \
-        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-        unzip commandlinetools-linux-*.zip -d android-sdk
+        # 解决 libtinfo5 问题
         sudo apt-get update
+        sudo apt-get install -y libtinfo6
+        sudo ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+        
+        # 安装其他必要依赖
         sudo apt-get install -y \
           git zip unzip openjdk-11-jdk \
           autoconf libtool pkg-config \
           zlib1g-dev libncurses5-dev \
-          libncursesw5-dev libtinfo5 cmake \
-          libffi-dev libssl-dev
+          libncursesw5-dev cmake \
+          libffi-dev libssl-dev python3-pip
+        
+    - name: Setup Android SDK
+      run: |
+        mkdir -p android-sdk/cmdline-tools
+        wget https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
+        wget https://mirrors.bfsu.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
+        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip
+        unzip cmdline-tools.zip -d android-sdk/cmdline-tools
+        mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+        
+        # 接受 licenses
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+        
+        # 安装必要组件
+        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0"
+    
+    - name: Setup Android NDK
+      run: |
+        wget https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O ndk.zip
+        unzip ndk.zip
+        mv android-ndk-r23c $ANDROIDNDK
     
     - name: Install Buildozer
-      run: pip install buildozer
+      run: |
+        python -m pip install --upgrade pip
+        pip install buildozer==1.4.0 python-for-android==2023.8.24
     
     - name: Build APK
       run: |
-        buildozer -v android debug
+        buildozer -v android clean
+        buildozer -v android debug 2>&1 | tee build.log
+        
+        # 检查是否生成APK
+        if [ ! -f bin/*.apk ]; then
+          echo "APK build failed!"
+          cat build.log | grep -A 30 -B 10 "error"
+          exit 1
+        fi
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
         path: bin/*.apk
+        
+    - name: Upload build log
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: build.log
