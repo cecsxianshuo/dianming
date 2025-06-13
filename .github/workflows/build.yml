@@ -1,99 +1,25 @@
-name: Android APK Builder
-on: [push]
-env:
-  ANDROID_HOME: ${{ github.workspace }}/android-sdk
-  ANDROID_NDK_VERSION: r23c
+name: Build
+on: [push, pull_request]
 
 jobs:
-  build:
+  # Build job. Builds app for Android with Buildozer
+  build-android:
+    name: Build for Android
     runs-on: ubuntu-latest
+
     steps:
-    # 阶段1：检出代码
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v2
 
-    # 阶段2：安装 Python 环境
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.8'
+      - name: Build with Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          command: buildozer android debug
+          buildozer_version: stable
 
-    # 阶段3：安装基础工具（不使用 sudo）
-    - name: Install essential tools
-      run: |
-        pip install requests || true
-
-    # 阶段4：下载 Android SDK 和 NDK 并用 Python 解压
-    - name: Download and extract Android SDK & NDK using Python
-      run: |
-        mkdir -p $ANDROID_HOME/cmdline-tools
-
-        # 下载命令行工具
-        curl --retry 5 --retry-delay 10 \
-          -o /tmp/cmdline-tools.zip \
-          https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-
-        # 使用 Python 解压 cmdline-tools
-        python3 -c "
-          import zipfile
-          with zipfile.ZipFile('/tmp/cmdline-tools.zip', 'r') as zip_ref:
-              zip_ref.extractall('$ANDROID_HOME/cmdline-tools/')
-        "
-
-        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-
-        # 下载 NDK
-        curl --retry 5 --retry-delay 10 \
-          -o /tmp/ndk.zip \
-          https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
-
-        # 使用 Python 解压 NDK
-        python3 -c "
-          import zipfile
-          with zipfile.ZipFile('/tmp/ndk.zip', 'r') as zip_ref:
-              zip_ref.extractall('${{ github.workspace }}')
-        "
-
-    # 阶段5：设置环境变量
-    - name: Set environment variables
-      run: |
-        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "ANDROID_NDK_ROOT=${{ github.workspace }}/android-ndk-${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
-        echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
-
-    # 阶段6：安装 Buildozer
-    - name: Install Buildozer
-      run: |
-        pip install --user buildozer==1.4.0
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-    # 阶段7：初始化构建配置并构建 APK
-    - name: Build APK
-      run: |
-        if [ ! -f buildozer.spec ]; then
-          buildozer init
-        fi
-
-        # 写入 SDK/NDK 路径到 spec 文件
-        echo "android.sdk_path = $ANDROID_HOME" >> buildozer.spec
-        echo "android.ndk_path = ${{ github.workspace }}/android-ndk-${ANDROID_NDK_VERSION}" >> buildozer.spec
-
-        # 清理并开始构建
-        buildozer -v android clean
-        buildozer -v android debug 2>&1 | tee build.log
-
-        # 检查是否生成 APK
-        if ! ls bin/*.apk 1>/dev/null 2>&1; then
-          echo "::error::构建失败！错误摘要："
-          grep -A 20 -B 10 -i "error\|fail\|exception" build.log || true
-          exit 1
-        fi
-
-    # 阶段8：上传构建产物
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-apk
-        path: |
-          bin/*.apk
-          build.log
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: package
+          path: ${{ steps.buildozer.outputs.filename }}
