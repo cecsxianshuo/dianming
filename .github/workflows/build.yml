@@ -1,25 +1,75 @@
-name: Build
+name: Android Build Pipeline
 on: [push, pull_request]
 
 jobs:
-  # Build job. Builds app for Android with Buildozer
   build-android:
-    name: Build for Android
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # 防止长时间挂起
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      # 1. 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          command: buildozer android debug
-          buildozer_version: stable
+          fetch-depth: 0  # 获取完整提交历史
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+      # 2. 设置Python环境
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
         with:
-          name: package
-          path: ${{ steps.buildozer.outputs.filename }}
+          python-version: "3.8"
+          cache: 'pip'  # 启用pip缓存
+
+      # 3. 安装系统依赖
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip openjdk-11-jdk \
+            autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev \
+            libncursesw5-dev libtinfo5 cmake \
+            libffi-dev libssl-dev ccache
+
+      # 4. 安装Buildozer（带缓存）
+      - name: Install Buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer
+
+      # 5. 初始化Buildozer（如果不存在spec文件）
+      - name: Initialize Buildozer
+        run: |
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+            # 设置默认配置
+            sed -i "s/^title = .*/title = MyApp/" buildozer.spec
+            sed -i "s/^package.name = .*/package.name = myapp/" buildozer.spec
+          fi
+
+      # 6. 构建APK
+      - name: Build APK
+        run: |
+          # 启用详细日志
+          buildozer -v android debug
+          # 重命名APK文件包含日期
+          find bin/ -name '*.apk' -exec mv {} bin/app-$(date +%Y%m%d).apk \;
+
+      # 7. 上传APK产物
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: bin/*.apk
+          retention-days: 7  # 自动保留7天
+
+      # 8. 上传构建日志（调试用）
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}  # 即使构建失败也上传
+        with:
+          name: build-logs
+          path: |
+            .buildozer/**/*.log
+            buildozer.spec
