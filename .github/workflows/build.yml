@@ -8,6 +8,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+
+    - name: Install essential tools (fallback)
+      run: |
+        # 使用备用地址下载 unzip
+        curl -L https://cdn.jsdelivr.net/gh/dsoprea/unzip-static@6.0-26/unzip-static -o /tmp/unzip
+
+        # 检查是否是 HTML 文件
+        if head -n 1 /tmp/unzip | grep -q '<!DOCTYPE html>'; then
+          echo "::error::备用下载也失败，请检查网络或更换源"
+          exit 1
+        fi
+
+        chmod +x /tmp/unzip
+        echo "/tmp" >> $GITHUB_PATH
     # 阶段1：检出代码
     - uses: actions/checkout@v4
 
