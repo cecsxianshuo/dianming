@@ -9,24 +9,23 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 第一步：安装基础工具（包括tar）
+    # 第一步：安装基础工具（去掉sudo）
     - name: Install essential tools
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          tar \  # 明确安装tar工具
+        apt-get update
+        apt-get install -y \
+          tar \
           gzip \
-          unzip \
-          zip \
+          git \
           curl \
           wget \
-          git \
-          make
+          unzip \
+          zip
         
-    # 第二步：检出代码（使用更可靠的checkout方式）
+    # 第二步：检出代码
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 获取完整历史记录
+        fetch-depth: 0
         
     # 第三步：设置Python环境
     - name: Set up Python 3.8
@@ -34,20 +33,20 @@ jobs:
       with:
         python-version: '3.8'
     
-    # 第四步：解决libtinfo依赖
+    # 第四步：解决libtinfo依赖（去掉sudo）
     - name: Fix library dependencies
       run: |
-        sudo apt-get install -y \
+        apt-get install -y \
           libtinfo6 \
           libncurses6 \
           zlib1g-dev
-        sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
-        sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5
+        ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+        ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5
     
-    # 第五步：安装Java和构建工具
+    # 第五步：安装Java和构建工具（去掉sudo）
     - name: Install Java and build tools
       run: |
-        sudo apt-get install -y \
+        apt-get install -y \
           openjdk-11-jdk \
           autoconf \
           libtool \
