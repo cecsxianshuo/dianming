@@ -1,9 +1,9 @@
 name: Build Android APK
-on: [push]  # 代码推送时触发
+on: [push]
 env:
   ANDROID_HOME: ${{ github.workspace }}/android-sdk
   ANDROIDNDK: ${{ github.workspace }}/android-ndk-r23c
-  PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/bin:$PATH
+  PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:$PATH
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,60 +16,61 @@ jobs:
       with:
         python-version: '3.8'
     
-    - name: Install system dependencies
+    - name: Fix libtinfo dependency
       run: |
-        # 解决 libtinfo5 问题
+        # Ubuntu 24.04 解决方案
         sudo apt-get update
-        sudo apt-get install -y libtinfo6
-        sudo ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+        sudo apt-get install -y libtinfo6 libncurses6
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5
         
         # 安装其他必要依赖
         sudo apt-get install -y \
           git zip unzip openjdk-11-jdk \
           autoconf libtool pkg-config \
-          zlib1g-dev libncurses5-dev \
-          libncursesw5-dev cmake \
-          libffi-dev libssl-dev python3-pip
-        
+          zlib1g-dev libncurses-dev \
+          cmake libffi-dev libssl-dev \
+          python3-pip
+    
     - name: Setup Android SDK
       run: |
-        mkdir -p android-sdk/cmdline-tools
-        wget https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
-        wget https://mirrors.bfsu.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
-        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip
-        unzip cmdline-tools.zip -d android-sdk/cmdline-tools
-        mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+        mkdir -p $ANDROID_HOME/cmdline-tools
+        wget --tries=3 --retry-connrefused https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
+        wget --tries=3 --retry-connrefused https://mirrors.bfsu.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip || \
+        wget --tries=3 --retry-connrefused https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -O cmdline-tools.zip
+        unzip cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
         
-        # 接受 licenses
+        # 接受 licenses 并安装组件
         yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-        
-        # 安装必要组件
         $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0"
     
     - name: Setup Android NDK
       run: |
-        wget https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O ndk.zip
+        wget --tries=3 --retry-connrefused https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O ndk.zip
         unzip ndk.zip
         mv android-ndk-r23c $ANDROIDNDK
     
-    - name: Install Buildozer
+    - name: Install Buildozer with dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install buildozer==1.4.0 python-for-android==2023.8.24
+        pip install --user buildozer==1.4.0
+        pip install --user cython==0.29.33
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
     
     - name: Build APK
       run: |
         buildozer -v android clean
         buildozer -v android debug 2>&1 | tee build.log
         
-        # 检查是否生成APK
-        if [ ! -f bin/*.apk ]; then
-          echo "APK build failed!"
-          cat build.log | grep -A 30 -B 10 "error"
+        # 检查APK是否生成
+        if ! ls bin/*.apk 1> /dev/null 2>&1; then
+          echo "::error::APK 生成失败！查看错误日志："
+          grep -A 30 -B 10 -i "error\|fail\|exception" build.log || cat build.log
           exit 1
         fi
     
-    - name: Upload APK
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
