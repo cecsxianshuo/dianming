@@ -1,0 +1,9 @@
+requests
+whatimage
+rsa
+tqdm
+chardet
+PyPDF2[full]
+pdf2image
+pillow
+gradio
