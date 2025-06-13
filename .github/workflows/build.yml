@@ -9,21 +9,23 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Install Docker Engine
+    - name: Install tools without sudo
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          ca-certificates \
-          curl \
-          gnupg \
-          lsb-release
-        sudo mkdir -p /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo \
-          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-          $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        sudo apt-get update
-        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        # 安装 unzip
+        curl -L https://github.com/dsoprea/unzip-static/releases/download/6.0-26/unzip-static -o /tmp/unzip
+        chmod +x /tmp/unzip
+        export PATH=/tmp:$PATH
+
+        # 检查是否安装成功
+        unzip -v
+
+        # 安装 git（如果未预装）
+        if ! command -v git &> /dev/null; then
+          echo "Installing git..."
+          curl -L https://github.com/git/git/archive/refs/tags/v2.45.2.tar.gz -o /tmp/git.tar.gz
+          tar -xzf /tmp/git.tar.gz -C /tmp/
+          cd /tmp/git-* && make configure && ./configure --prefix=/usr/local && make all && sudo make install
+        fi
     # 阶段1：使用 GitHub 预装工具验证
     - name: Verify basic tools
       run: |
