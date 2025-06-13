@@ -2,93 +2,89 @@ name: Android APK Builder
 on: [push]
 env:
   ANDROID_HOME: ${{ github.workspace }}/android-sdk
-  ANDROIDNDK: ${{ github.workspace }}/android-ndk-r23c
-  PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:$PATH
+  ANDROID_NDK_VERSION: r23c
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Install tools without sudo
-      run: |
-        # 安装 unzip
-        curl -L https://github.com/dsoprea/unzip-static/releases/download/6.0-26/unzip-static -o /tmp/unzip
-        chmod +x /tmp/unzip
-        export PATH=/tmp:$PATH
-
-        # 检查是否安装成功
-        unzip -v
-
-        # 安装 git（如果未预装）
-        if ! command -v git &> /dev/null; then
-          echo "Installing git..."
-          curl -L https://github.com/git/git/archive/refs/tags/v2.45.2.tar.gz -o /tmp/git.tar.gz
-          tar -xzf /tmp/git.tar.gz -C /tmp/
-          cd /tmp/git-* && make configure && ./configure --prefix=/usr/local && make all && sudo make install
-        fi
-    # 阶段1：使用 GitHub 预装工具验证
-    - name: Verify basic tools
-      run: |
-        # GitHub 的 ubuntu-latest 环境默认已安装这些工具
-        unzip -v || { echo "::error::unzip 不可用"; exit 1; }
-        curl --version || { echo "::error::curl 不可用"; exit 1; }
-        git --version || { echo "::error::git 不可用"; exit 1; }
-        python3 --version || { echo "::error::Python 不可用"; exit 1; }
-    # 阶段2：检出代码
+    # 阶段1：检出代码
     - uses: actions/checkout@v4
-    # 阶段3：设置 Python 环境
+
+    # 阶段2：安装 Python 环境
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.8'
-    # 阶段4：安装 Android SDK
-    - name: Install Android SDK
+
+    # 阶段3：安装 unzip/curl/git 等基础工具（使用静态版本）
+    - name: Install essential tools
+      run: |
+        # 下载静态 unzip
+        curl -L https://github.com/dsoprea/unzip-static/releases/download/6.0-26/unzip-static -o /tmp/unzip
+        chmod +x /tmp/unzip
+        export PATH=/tmp:$PATH
+
+        # 将工具路径加入 GITHUB_PATH，使其在后续步骤中可用
+        echo "/tmp" >> $GITHUB_PATH
+
+    # 阶段4：下载 Android SDK 和 NDK
+    - name: Install Android SDK & NDK
       run: |
         mkdir -p $ANDROID_HOME/cmdline-tools
-        curl --retry 5 --retry-delay 10 --fail \
-          https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
-          -o /tmp/cmdline-tools.zip
-        unzip -q /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+
+        # 下载命令行工具
+        curl --retry 5 --retry-delay 10 \
+          -o /tmp/cmdline-tools.zip \
+          https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+
+        unzip /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools/
         mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-        
-        echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
-        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-          "platform-tools" \
-          "platforms;android-31" \
-          "build-tools;31.0.0" > /dev/null
-    # 阶段5：安装 Android NDK
-    - name: Install Android NDK
+
+        # 下载并解压 NDK
+        curl --retry 5 --retry-delay 10 \
+          -o /tmp/ndk.zip \
+          https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
+
+        unzip /tmp/ndk.zip -d ${{ github.workspace }}
+
+    # 阶段5：设置环境变量
+    - name: Set environment variables
       run: |
-        curl --retry 5 --retry-delay 10 --fail \
-          https://dl.google.com/android/repository/android-ndk-r23c-linux.zip \
-          -o /tmp/ndk.zip
-        unzip -q /tmp/ndk.zip -d ${{ github.workspace }}
+        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+        echo "ANDROID_NDK_ROOT=${{ github.workspace }}/android-ndk-${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
+        echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
+
     # 阶段6：安装 Buildozer
     - name: Install Buildozer
       run: |
-        python -m pip install --upgrade pip
         pip install --user buildozer==1.4.0
         echo "$HOME/.local/bin" >> $GITHUB_PATH
-    # 阶段7：构建 APK
+
+    # 阶段7：初始化构建配置并构建 APK
     - name: Build APK
-      timeout-minutes: 30
       run: |
-        # 自动生成 buildozer.spec 如果不存在
         if [ ! -f buildozer.spec ]; then
           buildozer init
-          echo "android.ndk_path = $ANDROIDNDK" >> buildozer.spec
-          echo "android.sdk_path = $ANDROID_HOME" >> buildozer.spec
         fi
-        
+
+        # 写入 SDK/NDK 路径到 spec 文件
+        echo "android.sdk_path = $ANDROID_HOME" >> buildozer.spec
+        echo "android.ndk_path = ${{ github.workspace }}/android-ndk-${ANDROID_NDK_VERSION}" >> buildozer.spec
+
+        # 清理并开始构建
         buildozer -v android clean
         buildozer -v android debug 2>&1 | tee build.log
-        
-        if ! ls bin/*.apk 1> /dev/null 2>&1; then
+
+        # 检查是否生成 APK
+        if ! ls bin/*.apk 1>/dev/null 2>&1; then
           echo "::error::构建失败！错误摘要："
-          grep -A 20 -B 10 -i "error\|fail\|exception" build.log
+          grep -A 20 -B 10 -i "error\|fail\|exception" build.log || true
           exit 1
         fi
-    # 阶段8：上传产物
+
+    # 阶段8：上传构建产物
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
