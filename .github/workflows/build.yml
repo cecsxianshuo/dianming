@@ -16,7 +16,7 @@ jobs:
     
     - name: Pre-download Android SDK
       run: |
-        wget https://mirrors.cloud.tencent.com/android/repository/commandlinetools-linux-8512546_latest.zip
+        wget https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-9477386_latest.zip
         unzip commandlinetools-linux-*.zip -d android-sdk
         sudo apt-get update
         sudo apt-get install -y \
