@@ -9,18 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 第一步：安装基础工具（去掉sudo）
+    # 第一步：安装基础工具（使用正确的包管理器）
     - name: Install essential tools
       run: |
-        apt-get update
-        apt-get install -y \
+        # 在GitHub Actions环境中使用apt而不是apt-get
+        apt update
+        apt install -y \
           tar \
           gzip \
           git \
           curl \
           wget \
           unzip \
-          zip
+          zip \
+          make
         
     # 第二步：检出代码
     - uses: actions/checkout@v4
@@ -33,20 +35,20 @@ jobs:
       with:
         python-version: '3.8'
     
-    # 第四步：解决libtinfo依赖（去掉sudo）
+    # 第四步：解决libtinfo依赖
     - name: Fix library dependencies
       run: |
-        apt-get install -y \
+        apt install -y \
           libtinfo6 \
           libncurses6 \
           zlib1g-dev
         ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
         ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5
     
-    # 第五步：安装Java和构建工具（去掉sudo）
+    # 第五步：安装Java和构建工具
     - name: Install Java and build tools
       run: |
-        apt-get install -y \
+        apt install -y \
           openjdk-11-jdk \
           autoconf \
           libtool \
@@ -59,9 +61,12 @@ jobs:
     - name: Setup Android SDK
       run: |
         mkdir -p $ANDROID_HOME/cmdline-tools
-        wget --tries=3 --retry-connrefused \
+        curl -L --retry 3 --retry-delay 5 \
           https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip \
-          -O cmdline-tools.zip
+          -o cmdline-tools.zip || \
+        curl -L --retry 3 --retry-delay 5 \
+          https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
+          -o cmdline-tools.zip
         unzip cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
         mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
         
@@ -74,9 +79,9 @@ jobs:
     # 第七步：设置Android NDK
     - name: Setup Android NDK
       run: |
-        wget --tries=3 --retry-connrefused \
+        curl -L --retry 3 --retry-delay 5 \
           https://dl.google.com/android/repository/android-ndk-r23c-linux.zip \
-          -O ndk.zip
+          -o ndk.zip
         unzip ndk.zip
         mv android-ndk-r23c $ANDROIDNDK
     
