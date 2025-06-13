@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Android APK Builder
 on: [push]
 env:
   ANDROID_HOME: ${{ github.workspace }}/android-sdk
@@ -9,111 +9,81 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 第一步：安装基础工具（使用正确的包管理器）
-    - name: Install essential tools
+    # 阶段1：基础环境验证
+    - name: Validate runner environment
       run: |
-        # 在GitHub Actions环境中使用apt而不是apt-get
-        apt update
-        apt install -y \
-          tar \
-          gzip \
-          git \
-          curl \
-          wget \
-          unzip \
-          zip \
-          make
-        
-    # 第二步：检出代码
+        echo "=== 基本工具检查 ==="
+        command -v unzip >/dev/null || { echo "unzip 缺失"; exit 127; }
+        command -v curl >/dev/null || { echo "curl 缺失"; exit 127; }
+        command -v git >/dev/null || { echo "git 缺失"; exit 127; }
+        echo "环境验证通过"
+    # 阶段2：Python环境
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
         
-    # 第三步：设置Python环境
-    - name: Set up Python 3.8
+    - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.8'
-    
-    # 第四步：解决libtinfo依赖
-    - name: Fix library dependencies
+    # 阶段3：依赖解决方案（不依赖系统包管理器）
+    - name: Prepare dependencies
       run: |
-        apt install -y \
-          libtinfo6 \
-          libncurses6 \
-          zlib1g-dev
-        ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
-        ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5
-    
-    # 第五步：安装Java和构建工具
-    - name: Install Java and build tools
+        # 创建必要的符号链接
+        mkdir -p /usr/lib/x86_64-linux-gnu/
+        [ -f /usr/lib/x86_64-linux-gnu/libtinfo.so.6 ] && \
+          ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 || true
+        [ -f /usr/lib/x86_64-linux-gnu/libncurses.so.6 ] && \
+          ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5 || true
+    # 阶段4：Android工具链安装
+    - name: Install Android SDK
       run: |
-        apt install -y \
-          openjdk-11-jdk \
-          autoconf \
-          libtool \
-          pkg-config \
-          cmake \
-          libffi-dev \
-          libssl-dev
-    
-    # 第六步：设置Android SDK
-    - name: Setup Android SDK
-      run: |
-        mkdir -p $ANDROID_HOME/cmdline-tools
-        curl -L --retry 3 --retry-delay 5 \
-          https://mirrors.tuna.tsinghua.edu.cn/Android/repository/commandlinetools-linux-10406996_latest.zip \
-          -o cmdline-tools.zip || \
-        curl -L --retry 3 --retry-delay 5 \
+        mkdir -p $ANDROID_HOME
+        curl --retry 5 --retry-delay 10 \
           https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
-          -o cmdline-tools.zip
-        unzip cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+          -o /tmp/cmdline-tools.zip
+        unzip /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
         mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
         
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+        echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
         $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
           "platform-tools" \
           "platforms;android-31" \
           "build-tools;31.0.0"
-    
-    # 第七步：设置Android NDK
-    - name: Setup Android NDK
+    - name: Install Android NDK
       run: |
-        curl -L --retry 3 --retry-delay 5 \
+        curl --retry 5 --retry-delay 10 \
           https://dl.google.com/android/repository/android-ndk-r23c-linux.zip \
-          -o ndk.zip
-        unzip ndk.zip
-        mv android-ndk-r23c $ANDROIDNDK
-    
-    # 第八步：安装Buildozer
+          -o /tmp/ndk.zip
+        unzip /tmp/ndk.zip -d ${{ github.workspace }}
+        echo "NDK路径: $ANDROIDNDK"
+    # 阶段5：Buildozer安装
     - name: Install Buildozer
       run: |
         python -m pip install --upgrade pip
         pip install --user buildozer==1.4.0
         echo "$HOME/.local/bin" >> $GITHUB_PATH
-    
-    # 第九步：构建APK
+    # 阶段6：构建过程
     - name: Build APK
+      timeout-minutes: 30
       run: |
+        buildozer init
+        sed -i 's/#android.ndk_path =/android.ndk_path = $ANDROIDNDK/' buildozer.spec
+        sed -i 's/#android.sdk_path =/android.sdk_path = $ANDROID_HOME/' buildozer.spec
+        
         buildozer -v android clean
         buildozer -v android debug 2>&1 | tee build.log
         
         if ! ls bin/*.apk 1> /dev/null 2>&1; then
-          echo "::error::APK build failed!"
-          grep -A 30 -B 10 -i "error\|fail\|exception" build.log || cat build.log
+          echo "::error::构建失败！错误摘要："
+          grep -A 20 -B 10 -i "error\|fail\|exception\|critical" build.log || cat build.log
           exit 1
         fi
-    
-    # 第十步：上传产物
-    - name: Upload APK
+    # 阶段7：产物收集
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug
-        path: bin/*.apk
-        
-    - name: Upload build log
-      if: ${{ always() }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: build.log
+        name: android-apk
+        path: |
+          bin/*.apk
+          build.log
