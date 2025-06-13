@@ -114,7 +114,8 @@ fullscreen = 0
 
 # (int) Android NDK API to use. This is the minimum API your app will support, it should usually match android.minapi.
 #android.ndk_api = 21
-
+requirements_source = https://pypi.tuna.tsinghua.edu.cn/simple/
+android.accept_sdk_license = True
 # (bool) Use --private data storage (True) or --dir public storage (False)
 #android.private_storage = True
 
@@ -450,3 +451,5 @@ warn_on_root = 1
 #    Then, invoke the command line with the "demo" profile:
 #
 #buildozer --profile demo android debug
+[android]
+arch = armeabi-v7a      # CPU架构（兼容旧设备）

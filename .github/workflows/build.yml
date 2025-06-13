@@ -1,0 +1,40 @@
+name: Build Android APK
+
+on: [push]  # 代码推送时触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+    
+    - name: Pre-download Android SDK
+      run: |
+        wget https://mirrors.cloud.tencent.com/android/repository/commandlinetools-linux-8512546_latest.zip
+        unzip commandlinetools-linux-*.zip -d android-sdk
+        sudo apt-get update
+        sudo apt-get install -y \
+          git zip unzip openjdk-11-jdk \
+          autoconf libtool pkg-config \
+          zlib1g-dev libncurses5-dev \
+          libncursesw5-dev libtinfo5 cmake \
+          libffi-dev libssl-dev
+    
+    - name: Install Buildozer
+      run: pip install buildozer
+    
+    - name: Build APK
+      run: |
+        buildozer -v android debug
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v2
+      with:
+        name: app-debug
+        path: bin/*.apk
