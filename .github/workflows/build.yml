@@ -9,59 +9,59 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 阶段1：使用容器化的基础工具
-    - name: Setup core tools via Docker
+    # 阶段1：使用 GitHub 预装工具验证
+    - name: Verify basic tools
       run: |
-        # 使用官方busybox镜像提供基础工具
-        docker run --rm -v $PWD:/workspace busybox:latest \
-          sh -c "unzip -v && curl --version && git --version" || {
-          echo "::error::基础工具检查失败";
-          exit 1;
-        }
-        
-        # 创建必要的符号链接
-        docker run --rm -v /usr:/usr busybox:latest \
-          sh -c "ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 || true"
-        
-    # 阶段2：Python环境
+        # GitHub 的 ubuntu-latest 环境默认已安装这些工具
+        unzip -v || { echo "::error::unzip 不可用"; exit 1; }
+        curl --version || { echo "::error::curl 不可用"; exit 1; }
+        git --version || { echo "::error::git 不可用"; exit 1; }
+        python3 --version || { echo "::error::Python 不可用"; exit 1; }
+    # 阶段2：检出代码
     - uses: actions/checkout@v4
-        
+    # 阶段3：设置 Python 环境
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.8'
-    # 阶段3：Android工具链安装（自包含方式）
-    - name: Install Android tools
+    # 阶段4：安装 Android SDK
+    - name: Install Android SDK
       run: |
-        # 下载预编译的unzip工具
-        curl -L https://github.com/dsoprea/unzip-static/releases/download/6.0-26/unzip-static -o /usr/local/bin/unzip
-        chmod +x /usr/local/bin/unzip
-        
-        # 安装Android SDK
-        mkdir -p $ANDROID_HOME
-        curl --retry 5 --retry-delay 10 \
+        mkdir -p $ANDROID_HOME/cmdline-tools
+        curl --retry 5 --retry-delay 10 --fail \
           https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
           -o /tmp/cmdline-tools.zip
-        unzip /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+        unzip -q /tmp/cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
         mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
         
-        # 安装NDK
-        curl --retry 5 --retry-delay 10 \
+        echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          "platform-tools" \
+          "platforms;android-31" \
+          "build-tools;31.0.0" > /dev/null
+    # 阶段5：安装 Android NDK
+    - name: Install Android NDK
+      run: |
+        curl --retry 5 --retry-delay 10 --fail \
           https://dl.google.com/android/repository/android-ndk-r23c-linux.zip \
           -o /tmp/ndk.zip
-        unzip /tmp/ndk.zip -d ${{ github.workspace }}
-    # 阶段4：Buildozer安装
+        unzip -q /tmp/ndk.zip -d ${{ github.workspace }}
+    # 阶段6：安装 Buildozer
     - name: Install Buildozer
       run: |
         python -m pip install --upgrade pip
         pip install --user buildozer==1.4.0
         echo "$HOME/.local/bin" >> $GITHUB_PATH
-    # 阶段5：构建过程
+    # 阶段7：构建 APK
     - name: Build APK
+      timeout-minutes: 30
       run: |
-        buildozer init
-        echo "android.ndk_path = $ANDROIDNDK" >> buildozer.spec
-        echo "android.sdk_path = $ANDROID_HOME" >> buildozer.spec
+        # 自动生成 buildozer.spec 如果不存在
+        if [ ! -f buildozer.spec ]; then
+          buildozer init
+          echo "android.ndk_path = $ANDROIDNDK" >> buildozer.spec
+          echo "android.sdk_path = $ANDROID_HOME" >> buildozer.spec
+        fi
         
         buildozer -v android clean
         buildozer -v android debug 2>&1 | tee build.log
@@ -71,7 +71,7 @@ jobs:
           grep -A 20 -B 10 -i "error\|fail\|exception" build.log
           exit 1
         fi
-    # 阶段6：产物收集
+    # 阶段8：上传产物
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
